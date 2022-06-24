@@ -187,8 +187,8 @@ func getMd5Checksum(filepath string) string {
 	if err != nil {
 		panic(err)
 	}
-	_hash := hash.Sum(nil)
-	return hex.EncodeToString(_hash[:])
+	checkSum := hash.Sum(nil)
+	return hex.EncodeToString(checkSum[:])
 }
 
 func downloadRepo(repo string) {
