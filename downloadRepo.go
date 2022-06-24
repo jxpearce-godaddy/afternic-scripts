@@ -1,6 +1,8 @@
 package main
 
 import (
+	"crypto/md5"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -52,54 +54,53 @@ type DownloadUriResponse struct {
 	URI string `json:"uri"`
 }
 
-func makeHTTPRequest(repo string) (string, error) {
-
+func setUpRequestToArtifactory(path string) (*http.Request, error) {
 	// set up request
-	artifactory_url := "http://p3planrepo01.prod.phx3.gdg:8081/artifactory/api/storage/"
+	artifactoryUrl := "http://p3planrepo01.prod.phx3.gdg:8081/artifactory/api/storage/"
 	values := url.Values{}
 	u := os.Getenv("artifactoryUser") + ":" + os.Getenv("artifactoryPassword")
 	values.Set("u", u)
-	req, err := http.NewRequest("GET", artifactory_url+repo, strings.NewReader(values.Encode()))
+	req, err := http.NewRequest("GET", artifactoryUrl+path, strings.NewReader(values.Encode()))
+	return req, err
+}
+
+func makeHTTPRequest(repo string) (string, error) {
+
+	req, err := setUpRequestToArtifactory(repo)
+
+	if err != nil {
+		panic(err)
+	}
 
 	// client to do the request
 	client := &http.Client{}
 	resp, err := client.Do(req)
 
 	if err != nil {
-		log.Fatal(err)
+		fmt.Println(err)
+		// log.Fatal(err)
 	}
 
 	// read body text
 	bodyText, err := ioutil.ReadAll(resp.Body)
 
 	if err != nil {
-		log.Fatal(err)
+		fmt.Println(err)
+		// log.Fatal(err)
 	}
 
 	return string(bodyText), err
 }
 
-func makeDownloadRequest(downloadUrl string) (*http.Response, error) {
-	// set up request
-	values := url.Values{}
-	values.Set("u", "_scheduled:standard8")
-	req, err := http.NewRequest("GET", downloadUrl, strings.NewReader(values.Encode()))
+// TODO: turn into a method without throwing
+// func makeDownloadRequest(downloadUrl string) (*http.Response, error) {
+// 	// set up request
 
-	// client to do the request
-	client := &http.Client{
-		Timeout: 60 * time.Second,
-	}
-	resp, err := client.Do(req)
+// 	return resp, err
+// }
 
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer resp.Body.Close()
-	return resp, err
-}
-
-func downloadFile(filepath string, url string) (err error) {
-
+func downloadFile(filepath string, downloadUrl string) (err error) {
+	fmt.Println("Downloading: ", filepath)
 	// Create the file
 	out, err := os.Create(filepath)
 	if err != nil {
@@ -107,9 +108,23 @@ func downloadFile(filepath string, url string) (err error) {
 	}
 	defer out.Close()
 
-	// Get the data
-	resp, err := makeDownloadRequest(url)
+	req, err := setUpRequestToArtifactory(downloadUrl)
 
+	if err != nil {
+		panic(err)
+	}
+	// client to do the request
+	client := &http.Client{
+		Timeout: 60 * time.Second,
+	}
+	resp, err := client.Do(req)
+
+	if err != nil {
+		fmt.Println(err)
+		// log.Fatal(err)
+	}
+
+	defer resp.Body.Close()
 	// Check server response
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("bad status: %s", resp.Status)
@@ -118,6 +133,7 @@ func downloadFile(filepath string, url string) (err error) {
 	// Writer the body to file
 	_, err = io.Copy(out, resp.Body)
 	if err != nil {
+		fmt.Println(err)
 		return err
 	}
 
@@ -136,51 +152,80 @@ func parseDownloadResponse(bodyText string) (DownloadUriResponse, error) {
 	return resp, parseErr
 }
 
-func downloadUriResponse(downloadPath string) {
+func getDownloadUriResponse(downloadPath string) DownloadUriResponse {
 	resp, err := makeHTTPRequest(downloadPath)
 	if err != nil {
-		log.Fatal(err)
+		fmt.Println(err)
+		// log.Fatal(err)
 	}
 
 	response, parseErr := parseDownloadResponse(resp)
 	if parseErr != nil {
-		log.Fatal(parseErr)
+		fmt.Println(parseErr)
+		// log.Fatal(parseErr)
 	}
 	fmt.Println(response.DownloadURI)
-	downloadFile(downloadPath, response.DownloadURI)
+
+	return response
 }
 
 /*
-TODO:
-1. Download maven-metadata.xml
-2. Add a pause so it doesn't take down the server
-3. Username and password from command line
+TODO: 1. Download maven-metadata.xml
 */
+func getMd5Checksum(filepath string) string {
+	file, err := os.Open(filepath)
+
+	if err != nil {
+		panic(err)
+	}
+
+	defer file.Close()
+
+	hash := md5.New()
+	_, err = io.Copy(hash, file)
+
+	if err != nil {
+		panic(err)
+	}
+	_hash := hash.Sum(nil)
+	return hex.EncodeToString(_hash[:])
+}
+
 func downloadRepo(repo string) {
 	resp, err := makeHTTPRequest(repo)
 	if err != nil {
-		log.Fatal(err)
+		fmt.Println(err)
+		// log.Fatal(err)
 	}
 
 	response, parseErr := parseArtifactoryResponse(resp)
 	if parseErr != nil {
-		log.Fatal(parseErr)
+		fmt.Println(parseErr)
+		// log.Fatal(parseErr)
 	}
-	// fmt.Println(resp.Children)
+
 	for _, value := range response.Children {
 		fileLocation := repo + value.URI
 		if value.Folder == true {
-			// fmt.Println(repo + value.URI)
+			// recurse
 			downloadRepo(repo + value.URI)
 		} else {
+			// make directory
 			if err := os.MkdirAll(repo, os.ModePerm); err != nil {
 				log.Fatal(err)
 			}
-			fmt.Println("Downloading", fileLocation)
+			response := getDownloadUriResponse(fileLocation)
 			if _, err := os.Stat(fileLocation); os.IsNotExist(err) {
-				downloadUriResponse(fileLocation)
+				downloadFile(fileLocation, response.DownloadURI)
 			} else {
-				fmt.Println("File already exists: ", fileLocation)
+				fmt.Println("Check if file already exists & verify checksum: ", fileLocation)
+				md5hash := getMd5Checksum(fileLocation)
+				if response.Checksums.Md5 != md5hash {
+					fmt.Println(response.Checksums.Md5)
+					fmt.Println(md5hash)
+					fmt.Println("Checksum did not match!")
+					downloadFile(fileLocation, response.DownloadURI)
+				}
 			}
 		}
 	}
@@ -188,6 +233,7 @@ func downloadRepo(repo string) {
 
 func main() {
 	// https://repo.int.dev-afternic.com/artifactory/webapp/simplebrowserroot.html?25
+	// All dependencies are maven-2-default
 	localRepo := []string{
 		"cloudera-local",
 		"ext-release-local",
@@ -195,7 +241,7 @@ func main() {
 		"libs-release-local",
 		"libs-release-local-copy",
 		"libs-snapshot-local",
-		"old-java-build-dependencies",
+		"old-java-build-dependencies", // gradle
 		"plugins-release-local",
 		"plugins-snapshot-local",
 		"products-release-local",
@@ -240,7 +286,16 @@ func main() {
 	fmt.Println("Repository cache items: ", len(repositoryCache))
 	fmt.Println("Repository virtual items: ", len(repositoryVirtual))
 	fmt.Println("Local repo items: ", len(localRepo))
-	repo := []string{"libs-release-local"}
 
-	downloadRepo(repo[0])
+	for _, repo := range repositoryCache {
+		downloadRepo(repo)
+	}
+
+	for _, repo := range repositoryVirtual {
+		downloadRepo(repo)
+	}
+
+	for _, repo := range localRepo {
+		downloadRepo(repo)
+	}
 }
