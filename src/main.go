@@ -13,7 +13,6 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
-	"utils"
 
 	"github.com/gtelang-godaddy/afternic-scripts/src/utils"
 )
