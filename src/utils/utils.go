@@ -49,5 +49,4 @@ func GetCheckSum(algo string, filepath string) (string, error) {
 		err := errors.New("unknown algo passed" + algo)
 		return "", err
 	}
-
 }

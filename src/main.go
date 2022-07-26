@@ -215,33 +215,26 @@ func downloadRepo(repo string) {
 	}
 }
 
-func generateArtifactoryRequest(path string) (*http.Request, error) {
-	// set up request
-	artifactoryUrl := "https://artifactory.secureserver.net/artifactory/maven-aftermarket-platform-dev-legacy-local/"
-	values := url.Values{}
-	u := os.Getenv("artifactoryUser") + ":" + os.Getenv("artifactoryPassword")
-	values.Set("u", u)
-	req, err := http.NewRequest(http.MethodPut, artifactoryUrl+path, strings.NewReader(values.Encode()))
+func generateArtifactoryRequest(path string, body io.Reader, sha1 string, sha256 string, md5 string) (*http.Request, error) {
+	artifactoryUrl := "https://artifactory.secureserver.net/artifactory/generic-aftermarket-platform-dev-legacy-local/"
+	req, err := http.NewRequest(http.MethodPut, artifactoryUrl+path, body)
+	req.SetBasicAuth(os.Getenv("artifactoryUser"), os.Getenv("artifactoryPassword"))
+	req.Header.Set("X-Checksum-Sha1", sha1)
+	req.Header.Set("X-Checksum-Sha256", sha256)
+	req.Header.Set("X-Checksum-Md5", md5)
 	return req, err
 }
 
 func makeStatusCheck(path string, sha1 string, sha256 string, md5 string) (int, error) {
 
-	req, _ := generateArtifactoryRequest(path)
+	req, _ := generateArtifactoryRequest(path, nil, sha1, sha256, md5)
 	req.Header.Set("X-Checksum-Deploy", "true")
-	req.Header.Set("X-Checksum-Sha1", sha1)
-	req.Header.Set("X-Checksum-Sha256", sha256)
-	req.Header.Set("X-Checksum-Md5", md5)
 	client := &http.Client{}
 	resp, err := client.Do(req)
 	if err != nil {
 		// handle err
 		fmt.Println("Error: ", err)
 	}
-	// fmt.Println(path)
-	// fmt.Println(sha1)
-	// printResponseBody(resp)
-	// os.Exit(1)
 	defer resp.Body.Close()
 	return resp.StatusCode, err
 }
@@ -256,18 +249,12 @@ func printResponseBody(resp *http.Response) {
 
 func uploadArtifact(path string, sha1 string, sha256 string, md5 string) {
 	fmt.Println("Uploading: ", path)
-	// req, _ := generateArtifactoryRequest(path, "PUT")
-	artifactoryUrl := "https://artifactory.secureserver.net/artifactory/maven-aftermarket-platform-dev-legacy-local/"
 	file, err := os.Open(path)
 	if err != nil {
 		fmt.Println(err)
 	}
-	req, _ := http.NewRequest(http.MethodPut, artifactoryUrl+path, file)
-	req.SetBasicAuth(os.Getenv("artifactoryUser"), os.Getenv("artifactoryPassword"))
+	req, _ := generateArtifactoryRequest(path, file, sha1, sha256, md5)
 	req.Header.Set("X-Checksum-Deploy", "false")
-	req.Header.Set("X-Checksum-Sha1", sha1)
-	req.Header.Set("X-Checksum-Sha256", sha256)
-	req.Header.Set("X-Checksum-Md5", md5)
 	client := &http.Client{}
 	resp, err := client.Do(req)
 	if err != nil {
@@ -385,7 +372,7 @@ func uploadToGDArtifactory() {
 	})
 
 	for _, path := range files {
-		_sha1, _ := utils.GetCheckSum("md5", path)
+		_sha1, _ := utils.GetCheckSum("sha1", path)
 		_sha256, _ := utils.GetCheckSum("sha256", path)
 		_md5, _ := utils.GetCheckSum("md5", path)
 		statusCode, err := makeStatusCheck(path, _sha1, _sha256, _md5)
