@@ -95,13 +95,6 @@ func makeHTTPRequest(repo string) (string, error) {
 	return string(bodyText), err
 }
 
-// TODO: turn into a method without throwing
-// func makeDownloadRequest(downloadUrl string) (*http.Response, error) {
-// 	// set up request
-
-// 	return resp, err
-// }
-
 func downloadFile(filepath string, downloadUrl string) (err error) {
 	fmt.Println("Downloading: ", filepath)
 	// Create the file
@@ -173,7 +166,7 @@ func getDownloadUriResponse(downloadPath string) DownloadUriResponse {
 }
 
 /*
-TODO: 1. Download maven-metadata.xml
+TODO: Download maven-metadata.xml if you're pushing to a maven artifactory?
 */
 func downloadRepo(repo string) {
 	resp, err := makeHTTPRequest(repo)
@@ -226,7 +219,8 @@ func generateArtifactoryRequest(path string, body io.Reader, sha1 string, sha256
 }
 
 func makeStatusCheck(path string, sha1 string, sha256 string, md5 string) (int, error) {
-
+	// https://www.jfrog.com/confluence/display/JFROG/Artifactory+REST+API#ArtifactoryRESTAPI-DeployArtifactbyChecksum
+	// You can browse here: https://artifactory.secureserver.net/ui/native/maven-aftermarket-platform-dev-legacy-local/rc-libs-local/
 	req, _ := generateArtifactoryRequest(path, nil, sha1, sha256, md5)
 	req.Header.Set("X-Checksum-Deploy", "true")
 	client := &http.Client{}
@@ -361,6 +355,7 @@ func uploadFolderToArtifactory(folder string) {
 		_sha1, _ := utils.GetCheckSum("sha1", path)
 		_sha256, _ := utils.GetCheckSum("sha256", path)
 		_md5, _ := utils.GetCheckSum("md5", path)
+		// Deploy only if checksum does not match. If checksum does not match, artifactory throws 404
 		statusCode, err := makeStatusCheck(path, _sha1, _sha256, _md5)
 		if err != nil {
 			fmt.Println("Error in status check", err)
