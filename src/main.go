@@ -183,7 +183,7 @@ func downloadRepo(repo string) {
 
 	for _, value := range response.Children {
 		fileLocation := repo + value.URI
-		if value.Folder == true {
+		if value.Folder {
 			// recurse
 			downloadRepo(repo + value.URI)
 		} else {
@@ -400,7 +400,21 @@ func uploadToGDArtifactory() {
 	fmt.Printf("end time %s", endTime)
 }
 
+// Migrate from: http://p3planrepo01.prod.phx3.gdg:8081/
+// to: https://artifactory.secureserver.net/artifactory/webapp/#/artifacts/browse/tree/General/generic-aftermarket-platform-dev-legacy-local
+
+// Uploading to a generic repo since if it's maven2 then pom consistency checks are enforced and I would need multiple repos instead of a single one.
+// Example: rc-libs-local and lib-release-snapshot would be under a different repo.
+// Other option would be figure out how to rebuild the pom.xml for maven repos (but would also mean we need do it for lot of jars)
 func main() {
-	// downloadFromP3Plan()
-	uploadToGDArtifactory()
+
+	args := os.Args
+
+	if args[1] == "download" {
+		fmt.Println("Downloading from p3plan.")
+		downloadFromP3Plan()
+	} else if args[1] == "upload" {
+		fmt.Println("Uploading to secureserver artifactory.")
+		uploadToGDArtifactory()
+	}
 }
