@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gtelang-godaddy/afternic-scripts/src/utils"
@@ -56,7 +57,7 @@ type DownloadUriResponse struct {
 	URI string `json:"uri"`
 }
 
-func setUpRequestToArtifactory(path string) (*http.Request, error) {
+func setUpRequestToOldArtifactory(path string) (*http.Request, error) {
 	// set up request
 	artifactoryUrl := "http://p3planrepo01.prod.phx3.gdg:8081/artifactory/api/storage/"
 	values := url.Values{}
@@ -68,7 +69,7 @@ func setUpRequestToArtifactory(path string) (*http.Request, error) {
 
 func makeHTTPRequest(repo string) (string, error) {
 
-	req, err := setUpRequestToArtifactory(repo)
+	req, err := setUpRequestToOldArtifactory(repo)
 
 	if err != nil {
 		panic(err)
@@ -110,7 +111,7 @@ func downloadFile(filepath string, downloadUrl string) (err error) {
 	}
 	defer out.Close()
 
-	req, err := setUpRequestToArtifactory(downloadUrl)
+	req, err := setUpRequestToOldArtifactory(downloadUrl)
 
 	if err != nil {
 		panic(err)
@@ -174,7 +175,6 @@ func getDownloadUriResponse(downloadPath string) DownloadUriResponse {
 /*
 TODO: 1. Download maven-metadata.xml
 */
-
 func downloadRepo(repo string) {
 	resp, err := makeHTTPRequest(repo)
 	if err != nil {
@@ -342,26 +342,12 @@ func downloadFromP3Plan() {
 	}
 }
 
-func uploadToGDArtifactory() {
-	folders := []string{
-		"rc-libs-local",
-		// "libs-release",
-		// "libs-snapshot",
-		// "plugins-release",
-		// "rc-products-local",
-		// "libs-release-local",
-		// "libs-snapshot-local",
-		// "plugins-snapshot",
-		// "remote-repos",
-		// "gradle-libs-cache",
-		// "libs-release-local-copy",
-		// "repo",
-
-	}
+func uploadFolderToArtifactory(folder string) {
 
 	files := []string{}
 	dirs := []string{}
-	filepath.WalkDir(folders[0], func(path string, di fs.DirEntry, err error) error {
+
+	filepath.WalkDir(folder, func(path string, di fs.DirEntry, err error) error {
 		info, _ := os.Stat(path)
 		if !info.IsDir() {
 			files = append(files, path)
@@ -385,7 +371,38 @@ func uploadToGDArtifactory() {
 			uploadArtifact(path, _sha1, _sha256, _md5)
 		}
 	}
+}
 
+func uploadToGDArtifactory() {
+	folders := []string{
+		"rc-libs-local",
+		"libs-release",
+		"libs-snapshot",
+		"plugins-release",
+		"rc-products-local",
+		"libs-release-local",
+		"libs-snapshot-local",
+		"plugins-snapshot",
+		"remote-repos",
+		"gradle-libs-cache",
+		"libs-release-local-copy",
+		"repo",
+	}
+
+	var wg sync.WaitGroup
+	startTime := time.Now()
+	fmt.Printf("Start time %s", startTime)
+
+	for _, folder := range folders {
+		wg.Add(1)
+		go func(folder string) {
+			uploadFolderToArtifactory(folder)
+			wg.Done()
+		}(folder)
+	}
+	wg.Wait()
+	endTime := time.Now()
+	fmt.Printf("end time %s", endTime)
 }
 
 func main() {
